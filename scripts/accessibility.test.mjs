@@ -1,0 +1,4 @@
+import assert from "node:assert/strict";
+import fs from "node:fs";
+const app=fs.readFileSync(new URL("../components/DemoAppV6.tsx",import.meta.url),"utf8"),editor=fs.readFileSync(new URL("../components/NatureEditorV2.tsx",import.meta.url),"utf8"),css=fs.readFileSync(new URL("../app/globals.css",import.meta.url),"utf8"),audit=fs.readFileSync(new URL("../ACCESSIBILITY_AUDIT.md",import.meta.url),"utf8");
+assert.match(app,/SpeakButton/);assert.match(app,/aria-label=\{emojiName/);assert.match(app,/role="switch"/);assert.match(app,/extendedTimeout/);assert.match(editor,/ArrowLeft/);assert.match(editor,/sticker-arrows/);assert.match(css,/:focus-visible/);assert.match(css,/prefers-reduced-motion:reduce/);assert.match(css,/min-height:56px/);assert.match(audit,/화면별 점검표/);console.log("Accessibility implementation checks passed");

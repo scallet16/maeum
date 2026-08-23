@@ -1,0 +1,16 @@
+import assert from "node:assert/strict";
+import React from "react";
+import {renderToStaticMarkup} from "react-dom/server";
+import {QRCodeSVG} from "qrcode.react";
+import sharp from "sharp";
+import jsQR from "jsqr";
+import {ensureCredentials,initialDemoState,regenerateQr} from "../lib/demo-v6.ts";
+process.env.NEXT_PUBLIC_APP_URL="https://maeum.example";
+const {studentEntryUrl}=await import("../lib/student-entry-url.ts");
+const state=initialDemoState(),a=state.studentCredentials[0],b=state.studentCredentials[1],student=state.classes.flatMap(c=>c.students).find(s=>s.id===a.studentId);
+const payload=studentEntryUrl(a.qrToken);
+assert.equal(payload,`https://maeum.example/student/enter/${a.qrToken}`);assert.equal(payload.includes(a.studentCode),false);assert.equal(payload.includes(a.pin),false);assert.equal(payload.includes(student.name),false);assert.notEqual(a.qrToken,b.qrToken);assert.match(a.qrToken,/^qrt_[0-9a-f]{64}$/);assert.equal(new Set(state.studentCredentials.map(c=>c.qrToken)).size,state.studentCredentials.length);const collision={...state,studentCredentials:state.studentCredentials.map((c,i)=>i===1?{...c,qrToken:a.qrToken}:c)},repaired=ensureCredentials(collision);assert.equal(new Set(repaired.studentCredentials.map(c=>c.qrToken)).size,repaired.studentCredentials.length);assert.equal(repaired.studentCredentials[0].qrToken,a.qrToken);assert.notEqual(repaired.studentCredentials[1].qrToken,a.qrToken);
+const markup=renderToStaticMarkup(React.createElement(QRCodeSVG,{value:payload,size:220,level:"Q",marginSize:4,bgColor:"#FFFFFF",fgColor:"#000000"}));assert.match(markup,/^<svg/);assert.match(markup,/<path/);assert.equal(markup.includes("▦"),false);
+const decodedImage=await sharp(Buffer.from(markup)).ensureAlpha().raw().toBuffer({resolveWithObject:true}),decoded=jsQR(new Uint8ClampedArray(decodedImage.data),decodedImage.info.width,decodedImage.info.height);assert.equal(decoded?.data,payload);
+const next=regenerateQr(state,a.studentId),changed=next.studentCredentials.find(c=>c.studentId===a.studentId);assert.notEqual(changed.qrToken,a.qrToken);assert.equal(state.studentCredentials.find(c=>c.studentId===a.studentId).qrToken,a.qrToken);
+console.log("Real QR payload and SVG checks passed");

@@ -1,0 +1,16 @@
+import assert from "node:assert/strict";
+import {existsSync} from "node:fs";
+import {demoAuthService,ensureCredentials,initialDemoState,regenerateQr,resolveStudentByCode,resolveStudentByQr,teacherCanManageStudent} from "../lib/demo-v6.ts";
+process.env.NEXT_PUBLIC_APP_URL="https://maeum.example/";
+const {studentEntryUrl}=await import("../lib/student-entry-url.ts");
+let state=initialDemoState();
+const created=demoAuthService.createClass("새 학급",state),classId=created.account.classId,studentId=`student-${crypto.randomUUID()}`;
+state={...created.state,classes:created.state.classes.map(c=>c.id===classId?{...c,students:[...c.students,{id:studentId,name:"가온",avatar:"🐻",active:true,attendance:"present"}]}:c),features:{...created.state.features,[classId]:{...created.state.features[classId],nature:false}}};
+state=ensureCredentials(state);
+const credential=state.studentCredentials.find(c=>c.studentId===studentId),qr=resolveStudentByQr(state,credential.qrToken),code=resolveStudentByCode(state,credential.studentCode,credential.pin);
+assert.equal(qr.student.id,studentId);assert.equal(code.student.id,studentId);assert.equal(qr.classId,classId);assert.equal(code.classId,classId);assert.equal(state.features[qr.classId].nature,false);
+assert.equal(state.accounts.find(a=>a.classId===classId).teacherId,created.account.teacherId);assert.equal(teacherCanManageStudent(state,created.account.teacherId,studentId),true);
+const mood={id:"qr-mood",classId,ownerId:studentId,a:"😊",b:"🌱",note:"",date:"today",createdAt:1,privacyLevel:"class_share"};state={...state,moodHistory:[...state.moodHistory,mood]};assert.equal(state.moodHistory.find(x=>x.ownerId===qr.student.id).id,mood.id);assert.equal(state.moodHistory.find(x=>x.ownerId===code.student.id).id,mood.id);
+const oldToken=credential.qrToken;state=regenerateQr(state,studentId);const renewed=state.studentCredentials.find(c=>c.studentId===studentId);assert.equal(resolveStudentByQr(state,oldToken),null);assert.equal(resolveStudentByQr(state,renewed.qrToken).student.id,studentId);assert.equal(state.moodHistory.find(x=>x.id===mood.id).ownerId,studentId);
+const payload=studentEntryUrl(renewed.qrToken);assert.equal(payload,`https://maeum.example/student/enter/${renewed.qrToken}`);assert.equal(payload.includes("가온"),false);assert.equal(payload.includes(renewed.pin),false);assert.equal(existsSync(new URL("../app/student/[[...path]]/page.tsx",import.meta.url)),true);
+console.log("New class QR linkage checks passed");

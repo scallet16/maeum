@@ -1,0 +1,17 @@
+import assert from "node:assert/strict";
+import {canView,initialDemoState,moodStats} from "../lib/demo-v4.ts";
+const base={classId:"sun",ownerId:"sun-1",teacherApproved:false};
+assert.equal(canView({...base,privacyLevel:"class_share"},{role:"peer",studentId:"sun-2",classId:"sun"}),true);
+assert.equal(canView({...base,privacyLevel:"teacher_private"},{role:"peer",studentId:"sun-2",classId:"sun"}),false);
+assert.equal(canView({...base,privacyLevel:"teacher_private"},{role:"teacher",classId:"sun"}),true);
+assert.equal(canView({...base,privacyLevel:"self_only"},{role:"teacher",classId:"sun"}),false);assert.equal(canView({...base,privacyLevel:"class_share"},{role:"teacher",classId:"star"}),false);
+assert.equal(canView({...base,privacyLevel:"self_only"},{role:"student",studentId:"sun-1"}),true);
+assert.equal(canView({...base,privacyLevel:"self_only"},{role:"student",studentId:"sun-2"}),false);
+assert.equal(canView({...base,privacyLevel:"teacher_private"},{role:"parent",studentId:"sun-1"}),false);
+assert.equal(canView({...base,privacyLevel:"self_only"},{role:"parent",studentId:"sun-1"}),false);
+assert.equal(canView({...base,privacyLevel:"class_share"},{role:"public",classId:"sun"}),false);
+assert.equal(canView({...base,privacyLevel:"class_share",teacherApproved:true},{role:"public",classId:"sun"}),true);
+const entries=[{id:"1",classId:"sun",ownerId:"sun-1",a:"😊",b:"🌱",note:"",date:"",createdAt:1,privacyLevel:"class_share"},{id:"2",classId:"sun",ownerId:"sun-1",a:"😠",b:"🌧️",note:"",date:"",createdAt:2,privacyLevel:"teacher_private"},{id:"3",classId:"sun",ownerId:"sun-1",a:"😢",b:"☁️",note:"",date:"",createdAt:3,privacyLevel:"self_only"}];
+const stats=moodStats(entries);assert.equal(stats.analyzable,2);assert.equal(stats.selfOnly,1);assert.equal(stats.counts["😢"],undefined);
+const state=initialDemoState(),before=JSON.stringify(state.moodHistory);state.features.sun.mood=false;assert.equal(JSON.stringify(state.moodHistory),before);state.features.sun.mood=true;assert.equal(JSON.stringify(state.moodHistory),before);
+console.log("Privacy and feature-setting checks passed");

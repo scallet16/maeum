@@ -1,0 +1,6 @@
+import assert from "node:assert/strict";
+import {canOpenRoute,canReadRecord,canReadStudent,canWriteTeacherFeedback} from "../lib/access-control.ts";
+const teacher={role:"teacher",classId:"sun",authenticated:true},a={role:"student",classId:"sun",studentId:"a",authenticated:true},device={role:"device",classId:"sun",authenticated:true},guardian={role:"guardian",classId:"sun",authenticated:true};
+assert.equal(canOpenRoute(a,"/teacher/dashboard"),false);assert.equal(canOpenRoute(a,"/teacher/together"),false);assert.equal(canOpenRoute(device,"/teacher/settings"),false);assert.equal(canOpenRoute(guardian,"/teacher/dashboard"),false);assert.equal(canReadStudent(a,"sun","b"),false);assert.equal(canReadStudent(a,"sun","a"),true);
+const shared={id:"1",classId:"sun",ownerId:"a",privacyLevel:"class_share"},privateRecord={...shared,privacyLevel:"teacher_private"},self={...shared,privacyLevel:"self_only"};
+assert.equal(canReadRecord(teacher,privateRecord),true);assert.equal(canReadRecord(teacher,self),false);assert.equal(canReadRecord(a,self),true);assert.equal(canWriteTeacherFeedback(teacher,privateRecord),true);assert.equal(canWriteTeacherFeedback(teacher,self),false);assert.equal(canWriteTeacherFeedback(a,shared),false);console.log("Authorization boundary checks passed");

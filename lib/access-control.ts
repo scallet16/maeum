@@ -1,0 +1,7 @@
+export type SessionRole="anonymous"|"teacher"|"student"|"device"|"guardian";
+export type DemoSession={role:SessionRole;classId?:string;studentId?:string;authenticated:boolean};
+export type ProtectedRecord={id:string;classId:string;ownerId:string;privacyLevel:"class_share"|"teacher_private"|"self_only"};
+export function canOpenRoute(session:DemoSession,path:string){if(path.startsWith("/teacher"))return session.authenticated&&session.role==="teacher";if(path.startsWith("/student"))return session.authenticated&&session.role==="student";if(path.startsWith("/device"))return session.authenticated&&session.role==="device";if(path.startsWith("/guardian"))return session.authenticated&&session.role==="guardian";return true}
+export function canReadStudent(session:DemoSession,classId:string,studentId:string){if(!session.authenticated||session.classId!==classId)return false;return session.role==="teacher"||(session.role==="student"&&session.studentId===studentId)}
+export function canReadRecord(session:DemoSession,record:ProtectedRecord){if(!canReadStudent(session,record.classId,record.ownerId))return false;if(record.privacyLevel==="self_only")return session.role==="student"&&session.studentId===record.ownerId;return session.role==="teacher"||session.studentId===record.ownerId}
+export function canWriteTeacherFeedback(session:DemoSession,record?:ProtectedRecord){if(!session.authenticated||session.role!=="teacher")return false;return !record||(record.classId===session.classId&&record.privacyLevel!=="self_only")}
