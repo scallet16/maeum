@@ -1,5 +1,6 @@
 import {cookies} from "next/headers";
 import {NextResponse} from "next/server";
+import {clientPayload} from "@/lib/private-record-media";
 import {db,verifiedTeacher,verifyStudentSession} from "@/lib/supabase-admin";
 
 export async function POST(request:Request){
@@ -15,12 +16,22 @@ export async function POST(request:Request){
   const students=await db(`students?class_id=eq.${cls.id}&select=id,external_id`);
   const externalById=new Map(students.map((student:any)=>[student.id,student.external_id]));
   const moods=await db(`daily_moods?class_id=eq.${cls.id}&privacy_level=in.(class_share,teacher_private)&select=*`);
+  const selfMoods=await db(`daily_moods?class_id=eq.${cls.id}&privacy_level=eq.self_only&select=external_id,student_id,activity_date,created_at,privacy_level`);
   const media=moods.length?await db(`mood_media?mood_id=in.(${moods.map((mood:any)=>mood.id).join(",")})&select=mood_id,media_type`):[];
   const mediaByMood=new Map<string,Set<string>>();
   for(const item of media){const set=mediaByMood.get(item.mood_id)||new Set<string>();set.add(item.media_type);mediaByMood.set(item.mood_id,set)}
+  const [friendCards,natureCards,captures,discoveries]=await Promise.all([
+   db(`daily_friend_cards?class_id=eq.${cls.id}&select=*`),
+   db(`nature_cards?class_id=eq.${cls.id}&select=*`),
+   db(`personal_treasures?class_id=eq.${cls.id}&privacy_level=in.(class_share,teacher_private)&select=*`),
+   db(`discoveries?class_id=eq.${cls.id}&privacy_level=in.(class_share,teacher_private)&select=*`)
+  ]);
   const feedback=await db(`teacher_feedback?class_id=eq.${cls.id}&teacher_id=eq.${identity.teacher.id}&select=external_id,student_id,payload,created_at&order=created_at.desc`);
   return NextResponse.json({
-   moods:moods.map((mood:any)=>({id:mood.external_id,classId,ownerId:externalById.get(mood.student_id),a:mood.emoji_a,b:mood.emoji_b,note:mood.note,date:mood.activity_date,createdAt:new Date(mood.created_at).getTime(),privacyLevel:mood.privacy_level,...Object.fromEntries([...mediaByMood.get(mood.id)||[]].map(type=>[type,`/api/media/moods/${encodeURIComponent(mood.external_id)}/${type}`]))})),
+   moods:[...moods.map((mood:any)=>({id:mood.external_id,classId,ownerId:externalById.get(mood.student_id),a:mood.emoji_a,b:mood.emoji_b,note:mood.note,date:mood.activity_date,createdAt:new Date(mood.created_at).getTime(),privacyLevel:mood.privacy_level,...Object.fromEntries([...mediaByMood.get(mood.id)||[]].map(type=>[type,`/api/media/moods/${encodeURIComponent(mood.external_id)}/${type}`]))})),...selfMoods.map((mood:any)=>({id:mood.external_id,classId,ownerId:externalById.get(mood.student_id),a:"",b:"",note:"",date:mood.activity_date,createdAt:new Date(mood.created_at).getTime(),privacyLevel:"self_only"}))],
+   friendRecords:friendCards.map((x:any)=>({id:x.external_id,classId,from:externalById.get(x.sender_student_id),to:externalById.get(x.recipient_student_id),...clientPayload(x.payload,"friend",x.external_id),date:x.payload?.date||x.activity_date})),
+   natureCards:natureCards.map((x:any)=>({id:x.external_id,classId,from:externalById.get(x.sender_student_id),to:externalById.get(x.recipient_student_id),...clientPayload(x.payload,"nature",x.external_id),classShareRequested:x.class_share_requested,teacherApproved:x.teacher_approved,date:x.payload?.date||String(x.created_at).slice(0,10)})),
+   personalEntries:[...captures.map((x:any)=>({id:x.external_id,classId,ownerId:externalById.get(x.student_id),kind:"capture",...clientPayload(x.payload,"capture",x.external_id),privacyLevel:x.privacy_level,teacherApproved:x.teacher_approved,createdAt:new Date(x.created_at).getTime()})),...discoveries.map((x:any)=>({id:x.external_id,classId,ownerId:externalById.get(x.student_id),kind:"discovery",...clientPayload(x.payload,"discovery",x.external_id),privacyLevel:x.privacy_level,teacherApproved:x.teacher_approved,createdAt:new Date(x.created_at).getTime()}))],
    letters:feedback.map((row:any)=>({id:row.external_id,classId,studentId:externalById.get(row.student_id),createdAt:new Date(row.created_at).getTime(),date:row.payload?.date||new Date(row.created_at).toLocaleDateString("ko-KR"),text:row.payload?.text||"",emoji:row.payload?.emoji||"💛",audio:row.payload?.audio,image:row.payload?.image,drawing:row.payload?.drawing,recordId:row.payload?.recordId,recordKind:row.payload?.recordKind,readAt:row.payload?.readAt?Number(row.payload.readAt):undefined}))
   });
  }catch(error){

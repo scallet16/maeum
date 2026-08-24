@@ -45,7 +45,7 @@ export function mergeCloudSnapshot(base:DemoState,snapshot:any):DemoState{
  const studentId=snapshot.student.id;
  const classes=[...base.classes.filter(item=>item.id!==classId),{id:classId,name:snapshot.classData.name,students:snapshot.classData.students}];
  const moodHistory=[...base.moodHistory.filter(item=>!(item.classId===classId&&item.ownerId===studentId)),...snapshot.moods];
- return{...base,classes,moodHistory,moods:{...base.moods,...Object.fromEntries(snapshot.moods.slice(-1).map((mood:any)=>[mood.ownerId,{a:mood.a,b:mood.b,note:mood.note,date:mood.date}]))},features:{...base.features,[classId]:{mood:true,friend:true,nature:true,capture:true,discovery:true,treasure:true,galleryReaction:true,...snapshot.classData.features}},accessSettings:{...base.accessSettings,[classId]:{qrEnabled:true,codeEnabled:true,sharedDevice:true,homeQrAllowed:true,teacherPin:"2468"}},galleryReactionSettings:{...base.galleryReactionSettings,[classId]:{flowerEnabled:true,monthlySharerEnabled:true,exactCountsVisible:false,flowerThreshold:5,sharerThreshold:5}},classAccessibility:{...base.classAccessibility,[classId]:{largeTargets:false,audioPrompts:true,simplifiedChoices:false,pictureGuidance:true,reducedMotion:false,extendedTimeout:false,tapAlternativeToDrag:true,teacherHelp:true}},discoveryTopics:{...base.discoveryTopics,[classId]:{title:"오늘의 발견",guide:"오늘 발견한 것을 너만의 방법으로 담아볼까요?",emoji:"🔎",startDate:"",endDate:""}}};
+ return{...base,classes,moodHistory,friendRecords:[...base.friendRecords.filter(x=>x.classId!==classId),...(snapshot.friendRecords||[])],natureCards:[...base.natureCards.filter(x=>x.classId!==classId),...(snapshot.natureCards||[])],personalEntries:[...base.personalEntries.filter(x=>!(x.classId===classId&&x.ownerId===studentId)),...(snapshot.personalEntries||[])],moods:{...base.moods,...Object.fromEntries(snapshot.moods.slice(-1).map((mood:any)=>[mood.ownerId,{a:mood.a,b:mood.b,note:mood.note,date:mood.date}]))},features:{...base.features,[classId]:{mood:true,friend:true,nature:true,capture:true,discovery:true,treasure:true,galleryReaction:true,...snapshot.classData.features}},accessSettings:{...base.accessSettings,[classId]:{qrEnabled:true,codeEnabled:true,sharedDevice:true,homeQrAllowed:true,teacherPin:"2468"}},galleryReactionSettings:{...base.galleryReactionSettings,[classId]:{flowerEnabled:true,monthlySharerEnabled:true,exactCountsVisible:false,flowerThreshold:5,sharerThreshold:5}},classAccessibility:{...base.classAccessibility,[classId]:{largeTargets:false,audioPrompts:true,simplifiedChoices:false,pictureGuidance:true,reducedMotion:false,extendedTimeout:false,tapAlternativeToDrag:true,teacherHelp:true}},discoveryTopics:{...base.discoveryTopics,[classId]:{title:"오늘의 발견",guide:"오늘 발견한 것을 너만의 방법으로 담아볼까요?",emoji:"🔎",startDate:"",endDate:""}}};
 }
 
 export async function syncStudentMood(entry:any):Promise<{ok:true;media:Record<string,string>;mediaFailed:string[]}|null>{
@@ -70,7 +70,8 @@ export function mergeTeacherCloudMoods(state:DemoState,classId:string,payload:an
  const remote=payload?.moods||[];
 
  const letters=payload?.letters||[];
- return{...state,moodHistory:[...state.moodHistory.filter(mood=>mood.classId!==classId),...remote],teacherLetters:[...state.teacherLetters.filter(letter=>letter.classId!==classId),...letters]};
+ const summaries=Object.fromEntries([...remote].sort((a:any,b:any)=>a.createdAt-b.createdAt).map((mood:any)=>[mood.ownerId,{a:mood.a,b:mood.b,note:mood.note,date:mood.date}]));
+ return{...state,moods:{...state.moods,...summaries},moodHistory:[...state.moodHistory.filter(mood=>mood.classId!==classId),...remote],friendRecords:[...state.friendRecords.filter(x=>x.classId!==classId),...(payload.friendRecords||[])],natureCards:[...state.natureCards.filter(x=>x.classId!==classId),...(payload.natureCards||[])],personalEntries:[...state.personalEntries.filter(x=>x.classId!==classId),...(payload.personalEntries||[])],teacherLetters:[...state.teacherLetters.filter(letter=>letter.classId!==classId),...letters]};
 }
 export async function createCloudTeacherSession(teacherId:string,password:string){
  if(!cloudConfigured())return true;
@@ -101,4 +102,9 @@ export async function pullStudentFeedback(){
 export async function markStudentFeedbackRead(id:string){
  const response=await fetch("/api/student/feedback",{method:"PATCH",headers:{"Content-Type":"application/json"},body:JSON.stringify({id})});
  if(!response.ok)throw new Error("마음편지 확인 상태를 저장하지 못했어요.");
+}
+export async function saveCloudStudentRecord(kind:string,record:any){
+ const response=await fetch("/api/student/records",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({kind,record})});
+ if(!response.ok)throw new Error("저장하지 못했어요. 작업은 그대로 두었어요. 다시 해볼까요?");
+ return (await response.json()).record;
 }
