@@ -15,7 +15,11 @@ export async function syncClassToCloud(state:DemoState,classId:string){
   credentials:state.studentCredentials.filter(item=>item.classId===classId),
   moods:state.moodHistory.filter(item=>item.classId===classId)
  })});
- if(!response.ok)throw new Error("cloud sync failed");
+ if(!response.ok){
+  const problem=await response.json().catch(()=>({}));
+  const detail=[problem.stage,problem.table,problem.status,problem.code].filter(Boolean).join(" / ");
+  throw new Error(detail?`Cloud Sync 실패 (${detail})`:"Cloud Sync 실패");
+ }
  return response.json() as Promise<{ok:true;issuedQrTokens:{studentId:string;qrToken:string;version:number}[]}>;
 }
 

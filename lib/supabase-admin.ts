@@ -16,6 +16,12 @@ function serverKey(){
  throw new Error("SUPABASE_SECRET_KEY is missing");
 }
 
+export class SupabaseRequestError extends Error{
+ constructor(public table:string,public status:number,public code:string,message:string){
+  super(message);
+  this.name="SupabaseRequestError";
+ }
+}
 export async function db(path:string,init:RequestInit={}){
  const key=serverKey();
  const headers:Record<string,string>={
@@ -26,7 +32,12 @@ export async function db(path:string,init:RequestInit={}){
  };
  if(key.legacy)headers.Authorization=`Bearer ${key.value}`;
  const response=await fetch(`${url()}/rest/v1/${path}`,{...init,headers,cache:"no-store"});
- if(!response.ok)throw new Error(`Supabase ${response.status}: ${await response.text()}`);
+ if(!response.ok){
+  const raw=await response.text();
+  let code="unknown",message="Supabase request failed";
+  try{const problem=JSON.parse(raw);code=String(problem.code||code);message=String(problem.message||message)}catch{}
+  throw new SupabaseRequestError(path.split("?")[0],response.status,code,message);
+ }
  const text=await response.text();
  return text?JSON.parse(text):null;
 }

@@ -1,5 +1,5 @@
 import {NextResponse} from "next/server";
-import {db,generateQrToken,passwordHash,passwordOk,sha256} from "@/lib/supabase-admin";
+import {SupabaseRequestError,db,generateQrToken,passwordHash,passwordOk,sha256} from "@/lib/supabase-admin";
 
 async function uniqueQrToken(){
  for(let attempt=0;attempt<8;attempt++){
@@ -12,15 +12,21 @@ async function uniqueQrToken(){
 }
 
 export async function POST(request:Request){
+ let stage="request";
  try{
   const body=await request.json();
   const {teacherId,password,recoveryKey,classData,students=[],credentials=[],moods=[]}=body;
   if(!teacherId||!password||!recoveryKey||!classData?.id||!classData?.classCode)return NextResponse.json({error:"invalid_request"},{status:400});
 
+  stage="teacher";
   let teacher=(await db(`teachers?teacher_code=eq.${encodeURIComponent(teacherId)}&select=*`))[0];
   if(!teacher)teacher=(await db("teachers",{method:"POST",body:JSON.stringify({teacher_code:teacherId,password_hash:passwordHash(password),recovery_hash:passwordHash(recoveryKey)})}))[0];
-  else if(!passwordOk(password,teacher.password_hash))return NextResponse.json({error:"unauthorized"},{status:401});
+  else if(!passwordOk(password,teacher.password_hash)){
+   if(!passwordOk(recoveryKey,teacher.recovery_hash))return NextResponse.json({error:"unauthorized",stage:"teacher_auth"},{status:401});
+   teacher=(await db(`teachers?id=eq.${teacher.id}`,{method:"PATCH",body:JSON.stringify({password_hash:passwordHash(password)})}))[0];
+  }
 
+  stage="class";
   let cls=(await db(`classes?external_id=eq.${encodeURIComponent(classData.id)}&select=*`))[0];
   if(cls){
    const membership=(await db(`teacher_class_memberships?teacher_id=eq.${teacher.id}&class_id=eq.${cls.id}&select=teacher_id`))[0];
@@ -31,6 +37,7 @@ export async function POST(request:Request){
    await db("teacher_class_memberships",{method:"POST",body:JSON.stringify({teacher_id:teacher.id,class_id:cls.id})});
   }
 
+  stage="students";
   const idMap=new Map<string,string>();
   for(const studentInput of students){
    let student=(await db(`students?external_id=eq.${encodeURIComponent(studentInput.id)}&select=*`))[0];
@@ -41,6 +48,7 @@ export async function POST(request:Request){
    idMap.set(studentInput.id,student.id);
   }
 
+  stage="student_access_credentials";
   const issuedQrTokens:{studentId:string;qrToken:string;version:number}[]=[];
   for(const credentialInput of credentials){
    const studentId=idMap.get(credentialInput.studentId);
@@ -65,6 +73,7 @@ export async function POST(request:Request){
    }
   }
 
+  stage="daily_moods";
   for(const mood of moods){
    const studentId=idMap.get(mood.ownerId);
    if(!studentId)continue;
@@ -75,7 +84,8 @@ export async function POST(request:Request){
 
   return NextResponse.json({ok:true,issuedQrTokens});
  }catch(error){
-  console.error("cloud sync failed",error instanceof Error?error.message:"unknown");
-  return NextResponse.json({error:"cloud_unavailable"},{status:503});
+  const detail=error instanceof SupabaseRequestError?{stage,table:error.table,status:error.status,code:error.code,message:error.message}:{stage,table:"unknown",status:500,code:"unknown",message:error instanceof Error?error.message:"unknown"};
+  console.error("cloud sync failed",detail);
+  return NextResponse.json({error:"cloud_unavailable",stage:detail.stage,table:detail.table,status:detail.status,code:detail.code},{status:503});
  }
 }
