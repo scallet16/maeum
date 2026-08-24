@@ -3,7 +3,7 @@ export {demoAccounts,studentAvatars};export type {ManagedStudent};
 export type PrivacyLevel="class_share"|"teacher_private"|"self_only";
 export type FeatureKey="mood"|"friend"|"nature"|"capture"|"discovery"|"treasure"|"galleryReaction";
 export type FeatureSettings=Record<FeatureKey,boolean>;
-export type MoodEntry={id:string;classId:string;ownerId:string;a:string;b:string;note:string;drawing?:string;audio?:string;date:string;createdAt:number;privacyLevel:PrivacyLevel};
+export type MoodEntry={id:string;classId:string;ownerId:string;a:string;b:string;note:string;drawing?:string;audio?:string;image?:string;date:string;createdAt:number;privacyLevel:PrivacyLevel};
 export type PersonalEntry={id:string;classId:string;ownerId:string;kind:"capture"|"discovery";title:string;image:string;drawing?:string;backgroundColor?:string;stickers:{id:string;value:string;x:number;y:number;size:number}[];audio?:string;emoji?:string;date:string;createdAt:number;privacyLevel:PrivacyLevel;teacherApproved:boolean};
 export type DiscoveryTopic={title:string;guide:string;emoji:string;startDate:string;endDate:string;audio?:string};
 export type NatureRecord=V3Nature&{classShareRequested?:boolean;teacherApproved?:boolean};

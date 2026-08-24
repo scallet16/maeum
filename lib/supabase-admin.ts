@@ -86,6 +86,33 @@ export function verifyStudentSession(value:string):StudentSession|null{
  }catch{return null}
 }
 
+type TeacherSession={teacherId:string;exp:number};
+
+export function signTeacherSession(teacherId:string){
+ const body=Buffer.from(JSON.stringify({teacherId,exp:Date.now()+12*60*60*1000})).toString("base64url");
+ const signature=createHmac("sha256",sessionSecret()).update(`teacher:${body}`).digest("base64url");
+ return `${body}.${signature}`;
+}
+
+export function verifyTeacherSession(value:string):TeacherSession|null{
+ try{
+  const [body,signature,...rest]=value.split(".");
+  if(!body||!signature||rest.length)return null;
+  const expected=createHmac("sha256",sessionSecret()).update(`teacher:${body}`).digest();
+  const received=Buffer.from(signature,"base64url");
+  if(received.length!==expected.length||!timingSafeEqual(received,expected))return null;
+  const data=JSON.parse(Buffer.from(body,"base64url").toString("utf8")) as Partial<TeacherSession>;
+  if(typeof data.teacherId!=="string"||typeof data.exp!=="number"||data.exp<=Date.now())return null;
+  return data as TeacherSession;
+ }catch{return null}
+}
+
+export async function verifiedTeacher(value:string){
+ const session=verifyTeacherSession(value);
+ if(!session)return null;
+ const teacher=(await db(`teachers?id=eq.${encodeURIComponent(session.teacherId)}&select=id,teacher_code`))[0];
+ return teacher?{session,teacher}:null;
+}
 export async function verifiedStudent(value:string){
  const session=verifyStudentSession(value);
  if(!session)return null;

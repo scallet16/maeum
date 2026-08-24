@@ -48,16 +48,20 @@ export function mergeCloudSnapshot(base:DemoState,snapshot:any):DemoState{
  return{...base,classes,moodHistory,moods:{...base.moods,...Object.fromEntries(snapshot.moods.slice(-1).map((mood:any)=>[mood.ownerId,{a:mood.a,b:mood.b,note:mood.note,date:mood.date}]))},features:{...base.features,[classId]:{mood:true,friend:true,nature:true,capture:true,discovery:true,treasure:true,galleryReaction:true,...snapshot.classData.features}},accessSettings:{...base.accessSettings,[classId]:{qrEnabled:true,codeEnabled:true,sharedDevice:true,homeQrAllowed:true,teacherPin:"2468"}},galleryReactionSettings:{...base.galleryReactionSettings,[classId]:{flowerEnabled:true,monthlySharerEnabled:true,exactCountsVisible:false,flowerThreshold:5,sharerThreshold:5}},classAccessibility:{...base.classAccessibility,[classId]:{largeTargets:false,audioPrompts:true,simplifiedChoices:false,pictureGuidance:true,reducedMotion:false,extendedTimeout:false,tapAlternativeToDrag:true,teacherHelp:true}},discoveryTopics:{...base.discoveryTopics,[classId]:{title:"오늘의 발견",guide:"오늘 발견한 것을 너만의 방법으로 담아볼까요?",emoji:"🔎",startDate:"",endDate:""}}};
 }
 
-export async function syncStudentMood(entry:any){
- if(!cloudConfigured())return;
+export async function syncStudentMood(entry:any):Promise<{ok:true;media:Record<string,string>;mediaFailed:string[]}|null>{
+ if(!cloudConfigured())return null;
  const response=await fetch("/api/student/moods",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(entry)});
  if(!response.ok)throw new Error("student mood sync failed");
+ if(!entry.audio&&!entry.image&&!entry.drawing)return {ok:true,media:{},mediaFailed:[]};
+ const mediaResponse=await fetch("/api/student/mood-media",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({id:entry.id,audio:entry.audio,image:entry.image,drawing:entry.drawing,audioDurationMs:entry.audioDurationMs})});
+ if(!mediaResponse.ok)throw new Error("마음은 저장했어요. 목소리는 다시 한번 담아볼까요?");
+ return mediaResponse.json() as Promise<{ok:true;media:Record<string,string>;mediaFailed:string[]}>;
 }
 
 export async function pullCloudMoods(state:DemoState,classId:string){
  const account=state.accounts.find(item=>item.classId===classId);
  if(!cloudConfigured()||!account)return null;
- const response=await fetch("/api/cloud/pull",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({teacherId:account.teacherId,password:account.password,classId})});
+ const response=await fetch("/api/cloud/pull",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({classId})});
  if(!response.ok)return null;
  return response.json();
 }
@@ -65,5 +69,36 @@ export async function pullCloudMoods(state:DemoState,classId:string){
 export function mergeTeacherCloudMoods(state:DemoState,classId:string,payload:any):DemoState{
  const remote=payload?.moods||[];
 
- return{...state,moodHistory:[...state.moodHistory.filter(mood=>mood.classId!==classId),...remote]};
+ const letters=payload?.letters||[];
+ return{...state,moodHistory:[...state.moodHistory.filter(mood=>mood.classId!==classId),...remote],teacherLetters:[...state.teacherLetters.filter(letter=>letter.classId!==classId),...letters]};
+}
+export async function createCloudTeacherSession(teacherId:string,password:string){
+ if(!cloudConfigured())return true;
+ const response=await fetch("/api/teacher/session",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({teacherId,password})});
+ return response.ok;
+}
+
+export async function endCloudTeacherSession(){
+ if(cloudConfigured())await fetch("/api/teacher/session",{method:"DELETE"});
+}
+
+export async function endCloudStudentSession(){
+ if(cloudConfigured())await fetch("/api/student/session",{method:"DELETE"});
+}
+
+export async function sendCloudTeacherFeedback(letter:any){
+ const response=await fetch("/api/teacher/feedback",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify(letter)});
+ if(!response.ok)throw new Error("마음편지를 Supabase에 저장하지 못했어요.");
+ return response.json();
+}
+
+export async function pullStudentFeedback(){
+ const response=await fetch("/api/student/feedback",{cache:"no-store"});
+ if(!response.ok)return null;
+ return response.json();
+}
+
+export async function markStudentFeedbackRead(id:string){
+ const response=await fetch("/api/student/feedback",{method:"PATCH",headers:{"Content-Type":"application/json"},body:JSON.stringify({id})});
+ if(!response.ok)throw new Error("마음편지 확인 상태를 저장하지 못했어요.");
 }

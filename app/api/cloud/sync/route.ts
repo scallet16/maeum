@@ -1,5 +1,6 @@
+import {cookies} from "next/headers";
 import {NextResponse} from "next/server";
-import {SupabaseRequestError,db,generateQrToken,passwordHash,passwordOk,sha256} from "@/lib/supabase-admin";
+import {SupabaseRequestError,db,generateQrToken,passwordHash,passwordOk,sha256,signTeacherSession,verifyStudentSession} from "@/lib/supabase-admin";
 
 async function uniqueQrToken(){
  for(let attempt=0;attempt<8;attempt++){
@@ -14,6 +15,7 @@ async function uniqueQrToken(){
 export async function POST(request:Request){
  let stage="request";
  try{
+  if(verifyStudentSession((await cookies()).get("maeum_student_session")?.value||""))return NextResponse.json({error:"forbidden"},{status:403});
   const body=await request.json();
   const {teacherId,password,recoveryKey,classData,students=[],credentials=[],moods=[]}=body;
   if(!teacherId||!password||!recoveryKey||!classData?.id||!classData?.classCode)return NextResponse.json({error:"invalid_request"},{status:400});
@@ -75,6 +77,7 @@ export async function POST(request:Request){
 
   stage="daily_moods";
   for(const mood of moods){
+   if(mood.privacyLevel==="self_only")continue;
    const studentId=idMap.get(mood.ownerId);
    if(!studentId)continue;
    const existing=(await db(`daily_moods?external_id=eq.${encodeURIComponent(mood.id)}&select=class_id,student_id`))[0];
@@ -82,7 +85,10 @@ export async function POST(request:Request){
    await db("daily_moods?on_conflict=external_id",{method:"POST",body:JSON.stringify({external_id:mood.id,class_id:cls.id,student_id:studentId,emoji_a:mood.a,emoji_b:mood.b,note:mood.note||"",privacy_level:mood.privacyLevel,activity_date:new Date(mood.createdAt).toISOString().slice(0,10),created_at:new Date(mood.createdAt).toISOString()})});
   }
 
-  return NextResponse.json({ok:true,issuedQrTokens});
+  const response=NextResponse.json({ok:true,issuedQrTokens});
+  response.cookies.set("maeum_teacher_session",signTeacherSession(teacher.id),{httpOnly:true,secure:process.env.NODE_ENV==="production",sameSite:"lax",maxAge:43200,path:"/"});
+  response.cookies.set("maeum_student_session","",{httpOnly:true,secure:process.env.NODE_ENV==="production",sameSite:"lax",maxAge:0,path:"/"});
+  return response;
  }catch(error){
   const detail=error instanceof SupabaseRequestError?{stage,table:error.table,status:error.status,code:error.code,message:error.message}:{stage,table:"unknown",status:500,code:"unknown",message:error instanceof Error?error.message:"unknown"};
   console.error("cloud sync failed",detail);
