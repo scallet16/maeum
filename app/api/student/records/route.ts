@@ -29,6 +29,7 @@ export async function POST(request:Request){
    return NextResponse.json({record:{...record,...clientPayload(payload,"nature",externalId)}});
   }
   if(kind==="capture"||kind==="discovery"){
+   if(!["class_share","teacher_private","self_only"].includes(record.privacyLevel))return NextResponse.json({error:"privacy"},{status:400});
    const table=kind==="capture"?"personal_treasures":"discoveries",payload=await compactPrivateMedia({...record,id:undefined,classId:undefined,ownerId:undefined,privacyLevel:undefined,teacherApproved:undefined},base);
    await db(`${table}?on_conflict=external_id`,{method:"POST",body:JSON.stringify({external_id:externalId,class_id:classId,student_id:studentId,payload,privacy_level:record.privacyLevel,teacher_approved:false,created_at:new Date(record.createdAt||Date.now()).toISOString()})});
    return NextResponse.json({record:{...record,...clientPayload(payload,kind,externalId)}});
