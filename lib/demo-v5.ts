@@ -1,6 +1,6 @@
 import {initialDemoState as initialV4,releaseNextTreasures as baseRelease,sendNatureRecord as baseSend,studentAvatars,treasureReady,moodStats,privacyLabel,canView,demoAccounts,type DemoState as V4State,type FeatureSettings,type MoodEntry,type PersonalEntry,type ManagedStudent} from "./demo-v4.ts";
 export {studentAvatars,treasureReady,moodStats,privacyLabel,canView,demoAccounts};export type {FeatureSettings,MoodEntry,PersonalEntry,ManagedStudent};
-export type TeacherAccount={classId:string;teacherId:string;password:string;classCode:string;recoveryKey:string;mustChangePassword:boolean};
+export type TeacherAccount={classId:string;teacherId:string;password:string;classCode:string;recoveryKey:string;mustChangePassword:boolean;cloudManaged?:boolean};
 export type DemoState=Omit<V4State,"accounts">&{accounts:TeacherAccount[]};
 export function releaseNextTreasures(state:DemoState,classId:string){return baseRelease(state,classId) as DemoState}
 export function sendNatureRecord(state:DemoState,input:Parameters<typeof baseSend>[1]){const result=baseSend(state,input);return{state:result.state as DemoState,roundCompleted:result.roundCompleted}}

@@ -1,6 +1,6 @@
 import {cookies} from "next/headers";
 import {NextResponse} from "next/server";
-import {SupabaseRequestError,db,generateQrToken,passwordHash,passwordOk,sha256,signTeacherSession,verifyStudentSession} from "@/lib/supabase-admin";
+import {SupabaseRequestError,db,generateQrToken,passwordHash,passwordOk,sha256,signTeacherSession,verifiedTeacher,verifyStudentSession} from "@/lib/supabase-admin";
 
 async function uniqueQrToken(){
  for(let attempt=0;attempt<8;attempt++){
@@ -15,16 +15,20 @@ async function uniqueQrToken(){
 export async function POST(request:Request){
  let stage="request";
  try{
-  if(verifyStudentSession((await cookies()).get("maeum_student_session")?.value||""))return NextResponse.json({error:"forbidden"},{status:403});
+  const jar=await cookies();
+  if(verifyStudentSession(jar.get("maeum_student_session")?.value||""))return NextResponse.json({error:"forbidden"},{status:403});
+  const teacherSession=await verifiedTeacher(jar.get("maeum_teacher_session")?.value||"");
   const body=await request.json();
   const {teacherId,password,recoveryKey,classData,students=[],credentials=[],moods=[]}=body;
-  if(!teacherId||!password||!recoveryKey||!classData?.id||!classData?.classCode)return NextResponse.json({error:"invalid_request"},{status:400});
+  if(!teacherId||!classData?.id||!classData?.classCode)return NextResponse.json({error:"invalid_request"},{status:400});
 
   stage="teacher";
   let teacher=(await db(`teachers?teacher_code=eq.${encodeURIComponent(teacherId)}&select=*`))[0];
-  if(!teacher)teacher=(await db("teachers",{method:"POST",body:JSON.stringify({teacher_code:teacherId,password_hash:passwordHash(password),recovery_hash:passwordHash(recoveryKey)})}))[0];
-  else if(!passwordOk(password,teacher.password_hash)){
-   if(!passwordOk(recoveryKey,teacher.recovery_hash))return NextResponse.json({error:"unauthorized",stage:"teacher_auth"},{status:401});
+  if(!teacher){
+   if(!password||!recoveryKey)return NextResponse.json({error:"unauthorized",stage:"teacher_auth"},{status:401});
+   teacher=(await db("teachers",{method:"POST",body:JSON.stringify({teacher_code:teacherId,password_hash:passwordHash(password),recovery_hash:passwordHash(recoveryKey)})}))[0];
+  }else if(teacherSession?.teacher.id!==teacher.id&& !passwordOk(password,teacher.password_hash)){
+   if(!recoveryKey||!passwordOk(recoveryKey,teacher.recovery_hash))return NextResponse.json({error:"unauthorized",stage:"teacher_auth"},{status:401});
    teacher=(await db(`teachers?id=eq.${teacher.id}`,{method:"PATCH",body:JSON.stringify({password_hash:passwordHash(password)})}))[0];
   }
 
@@ -63,7 +67,7 @@ export async function POST(request:Request){
     issuedQrTokens.push({studentId:credentialInput.studentId,qrToken:qr.token,version});
    }else{
     const requestedVersion=Math.max(1,Number(credentialInput.version)||1);
-    const update:Record<string,unknown>={student_code:credentialInput.studentCode,pin_hash:passwordHash(String(credentialInput.pin)),updated_at:new Date().toISOString()};
+    const update:Record<string,unknown>={updated_at:new Date().toISOString()};if(credentialInput.studentCode)update.student_code=credentialInput.studentCode;if(credentialInput.pin)update.pin_hash=passwordHash(String(credentialInput.pin));
     if(requestedVersion>existing.token_version){
      const qr=await uniqueQrToken();
      update.qr_token_hash=qr.hash;

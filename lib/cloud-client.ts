@@ -12,7 +12,7 @@ export async function syncClassToCloud(state:DemoState,classId:string){
   recoveryKey:account.recoveryKey,
   classData:{id:cls.id,name:cls.name,classCode:account.classCode,features:state.features[classId]},
   students:cls.students,
-  credentials:state.studentCredentials.filter(item=>item.classId===classId),
+  credentials:state.studentCredentials.filter(item=>item.classId===classId&&!item.cloudManaged),
   moods:state.moodHistory.filter(item=>item.classId===classId)
  })});
  if(!response.ok){
@@ -74,8 +74,30 @@ export function mergeTeacherCloudMoods(state:DemoState,classId:string,payload:an
  return{...state,moods:{...state.moods,...summaries},moodHistory:[...state.moodHistory.filter(mood=>mood.classId!==classId),...remote],friendRecords:[...state.friendRecords.filter(x=>x.classId!==classId),...(payload.friendRecords||[])],natureCards:[...state.natureCards.filter(x=>x.classId!==classId),...(payload.natureCards||[])],personalEntries:[...state.personalEntries.filter(x=>x.classId!==classId),...(payload.personalEntries||[])],teacherDiscoveries:[...state.teacherDiscoveries.filter(x=>x.classId!==classId),...(payload.teacherDiscoveries||[])],galleryReactions:[...state.galleryReactions.filter(x=>x.classId!==classId),...(payload.galleryReactions||[])],galleryReactionCounts:{...state.galleryReactionCounts,...Object.fromEntries([...(payload.natureCards||[]),...(payload.personalEntries||[]),...(payload.teacherDiscoveries||[])].map((item:any)=>[item.id,0])),...Object.fromEntries(Object.entries((payload.galleryReactions||[]).reduce((acc:Record<string,number>,row:any)=>(acc[row.galleryItemId]=(acc[row.galleryItemId]||0)+1,acc),{})))},teacherLetters:[...state.teacherLetters.filter(letter=>letter.classId!==classId),...letters]};
 }
 export async function createCloudTeacherSession(teacherId:string,password:string){
- if(!cloudConfigured())return true;
- const response=await fetch("/api/teacher/session",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({teacherId,password})});
+ if(!cloudConfigured())return {ok:true,demo:true};
+ try{const response=await fetch("/api/teacher/session",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({teacherId,password})});if(!response.ok)return null;return response.json()}catch{return null}
+}
+
+export function mergeTeacherBootstrap(base:DemoState,payload:any,password:string):DemoState{
+ const remoteClasses=(payload?.classes||[]) as any[],remoteIds=new Set(remoteClasses.map(item=>item.id)),remoteStudentIds=new Set(remoteClasses.flatMap(item=>item.students.map((student:any)=>student.id)));
+ const classes=[...base.classes.filter(item=>!remoteIds.has(item.id)),...remoteClasses.map(item=>({id:item.id,name:item.name,students:item.students}))];
+ const accounts=[...base.accounts.filter(item=>!remoteIds.has(item.classId)),...remoteClasses.map(item=>{const existing=base.accounts.find(account=>account.classId===item.id);return{classId:item.id,teacherId:payload.teacherCode,password,classCode:item.classCode,recoveryKey:existing?.recoveryKey||"",mustChangePassword:existing?.mustChangePassword??false,cloudManaged:true}})];
+ const credentials=[...base.studentCredentials.filter(item=>!remoteStudentIds.has(item.studentId)),...remoteClasses.flatMap(item=>item.credentials.map((credential:any)=>{const existing=base.studentCredentials.find(item=>item.studentId===credential.studentId);return{studentId:credential.studentId,classId:item.id,qrToken:existing&&existing.version===credential.version?existing.qrToken:"",personalCode:existing?.personalCode||"",studentCode:credential.studentCode,pin:existing&&existing.studentCode===credential.studentCode?existing.pin:"",version:credential.version,cloudManaged:true}}))];
+ return{...base,classes,accounts,studentCredentials:credentials,features:{...base.features,...Object.fromEntries(remoteClasses.map(item=>[item.id,{mood:true,friend:true,nature:true,capture:true,discovery:true,treasure:true,galleryReaction:true,teacherLetter:true,...item.features}]))},accessSettings:{...base.accessSettings,...Object.fromEntries(remoteClasses.map(item=>[item.id,base.accessSettings[item.id]||{qrEnabled:true,codeEnabled:true,sharedDevice:true,homeQrAllowed:true,teacherPin:"2468"}]))},galleryReactionSettings:{...base.galleryReactionSettings,...Object.fromEntries(remoteClasses.map(item=>[item.id,base.galleryReactionSettings[item.id]||{flowerEnabled:true,monthlySharerEnabled:true,exactCountsVisible:false,flowerThreshold:5,sharerThreshold:5}]))},classAccessibility:{...base.classAccessibility,...Object.fromEntries(remoteClasses.map(item=>[item.id,base.classAccessibility[item.id]||{largeTargets:false,audioPrompts:true,simplifiedChoices:false,pictureGuidance:true,reducedMotion:false,extendedTimeout:false,tapAlternativeToDrag:true,teacherHelp:true}]))},discoveryTopics:{...base.discoveryTopics,...Object.fromEntries(remoteClasses.map(item=>[item.id,base.discoveryTopics[item.id]||{title:"오늘의 발견",guide:"오늘 발견한 것을 너만의 방법으로 담아볼까요?",emoji:"🔎",startDate:"",endDate:""}]))}};
+}
+
+export async function recoverCloudTeacherPassword(teacherId:string,recoveryKey:string,newPassword:string){
+ try{const response=await fetch("/api/teacher/recover",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({teacherId,recoveryKey,newPassword})});if(response.status===401)throw new Error("교사 ID와 복구키를 다시 확인해 주세요.");if(response.status===429)throw new Error("잠시 후 다시 시도해 주세요.");if(!response.ok)throw new Error("지금은 비밀번호를 바꾸지 못했어요. 다시 시도해 주세요.");return response.json()}catch(error){if(error instanceof Error&&["교사 ID와 복구키를 다시 확인해 주세요.","잠시 후 다시 시도해 주세요.","지금은 비밀번호를 바꾸지 못했어요. 다시 시도해 주세요."].includes(error.message))throw error;throw new Error("지금은 비밀번호를 바꾸지 못했어요. 다시 시도해 주세요.")}
+}
+
+export async function changeCloudTeacherPassword(currentPassword:string,newPassword:string){
+ const response=await fetch("/api/teacher/session",{method:"PATCH",headers:{"Content-Type":"application/json"},body:JSON.stringify({currentPassword,newPassword})});
+ if(!response.ok)throw new Error(response.status===401?"현재 비밀번호가 맞지 않아요.":"비밀번호를 서버에 저장하지 못했어요.");
+ return response.json();
+}
+export async function verifyCloudTeacherSession(){
+ if(!cloudConfigured())return sessionStorage.getItem("maeum-role")==="teacher";
+ const response=await fetch("/api/teacher/session",{cache:"no-store"});
  return response.ok;
 }
 
