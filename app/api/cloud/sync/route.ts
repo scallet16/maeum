@@ -1,6 +1,6 @@
 import {cookies} from "next/headers";
 import {NextResponse} from "next/server";
-import {SupabaseRequestError,db,generateQrToken,passwordHash,passwordOk,sha256,signTeacherSession,verifiedTeacher,verifyStudentSession} from "@/lib/supabase-admin";
+import {SupabaseRequestError,db,generateQrToken,passwordHash,sha256,signTeacherSession,verifiedTeacher,verifyStudentSession} from "@/lib/supabase-admin";
 
 async function uniqueQrToken(){
  for(let attempt=0;attempt<8;attempt++){
@@ -19,18 +19,12 @@ export async function POST(request:Request){
   if(verifyStudentSession(jar.get("maeum_student_session")?.value||""))return NextResponse.json({error:"forbidden"},{status:403});
   const teacherSession=await verifiedTeacher(jar.get("maeum_teacher_session")?.value||"");
   const body=await request.json();
-  const {teacherId,password,recoveryKey,classData,students=[],credentials=[],moods=[]}=body;
+  const {teacherId,classData,students=[],credentials=[],moods=[]}=body;
   if(!teacherId||!classData?.id||!classData?.classCode)return NextResponse.json({error:"invalid_request"},{status:400});
 
   stage="teacher";
-  let teacher=(await db(`teachers?teacher_code=eq.${encodeURIComponent(teacherId)}&select=*`))[0];
-  if(!teacher){
-   if(!password||!recoveryKey)return NextResponse.json({error:"unauthorized",stage:"teacher_auth"},{status:401});
-   teacher=(await db("teachers",{method:"POST",body:JSON.stringify({teacher_code:teacherId,password_hash:passwordHash(password),recovery_hash:passwordHash(recoveryKey)})}))[0];
-  }else if(teacherSession?.teacher.id!==teacher.id&& !passwordOk(password,teacher.password_hash)){
-   if(!recoveryKey||!passwordOk(recoveryKey,teacher.recovery_hash))return NextResponse.json({error:"unauthorized",stage:"teacher_auth"},{status:401});
-   teacher=(await db(`teachers?id=eq.${teacher.id}`,{method:"PATCH",body:JSON.stringify({password_hash:passwordHash(password)})}))[0];
-  }
+  if(!teacherSession||teacherSession.teacher.teacher_code!==teacherId)return NextResponse.json({error:"unauthorized",stage:"teacher_auth"},{status:401});
+  const teacher=teacherSession.teacher;
 
   stage="class";
   let cls=(await db(`classes?external_id=eq.${encodeURIComponent(classData.id)}&select=*`))[0];
@@ -38,10 +32,7 @@ export async function POST(request:Request){
    const membership=(await db(`teacher_class_memberships?teacher_id=eq.${teacher.id}&class_id=eq.${cls.id}&select=teacher_id`))[0];
    if(!membership)return NextResponse.json({error:"forbidden"},{status:403});
    cls=(await db(`classes?id=eq.${cls.id}`,{method:"PATCH",body:JSON.stringify({name:classData.name,feature_settings:classData.features||{}})}))[0];
-  }else{
-   cls=(await db("classes",{method:"POST",body:JSON.stringify({external_id:classData.id,name:classData.name,class_code:classData.classCode,feature_settings:classData.features||{}})}))[0];
-   await db("teacher_class_memberships",{method:"POST",body:JSON.stringify({teacher_id:teacher.id,class_id:cls.id})});
-  }
+  }else return NextResponse.json({error:"class_not_registered",stage:"class"},{status:404});
 
   stage="students";
   const idMap=new Map<string,string>();

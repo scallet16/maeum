@@ -2,10 +2,39 @@ import type {DemoState} from "./demo-v6";
 
 export const cloudConfigured=()=>Boolean(process.env.NEXT_PUBLIC_SUPABASE_URL&&process.env.NEXT_PUBLIC_SUPABASE_PUBLISHABLE_KEY);
 
+export async function createCloudTeacherRegistration(className:string){
+ try{
+  const response=await fetch("/api/teacher/register",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({className})});
+  if(!response.ok)throw new Error("지금은 우리 반 우체국을 만들지 못했어요. 다시 시도해 주세요.");
+  return response.json() as Promise<{ok:true;teacherCode:string;initialPassword:string;recoveryKey:string;classData:{id:string;name:string;classCode:string;features:Record<string,boolean>}}>;
+ }catch(error){
+  if(error instanceof Error&&error.message==="지금은 우리 반 우체국을 만들지 못했어요. 다시 시도해 주세요.")throw error;
+  throw new Error("지금은 우리 반 우체국을 만들지 못했어요. 다시 시도해 주세요.");
+ }
+}
+
+export async function createCloudStudent(classId:string){
+ const response=await fetch("/api/teacher/students",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({classId})});
+ if(!response.ok)throw new Error(response.status===409?"활성 원아는 한 학급에 최대 25명까지 등록할 수 있어요.":"원아를 저장하지 못했어요. 다시 시도해 주세요.");
+ return response.json() as Promise<{ok:true;student:{id:string;name:string;avatar:string;active:true;attendance:"present"};credential:{studentId:string;studentCode:string;initialPin:string;qrToken:string;version:number}}>;
+}
+
+export async function resetCloudStudentPin(classId:string,studentId:string){
+ const response=await fetch("/api/teacher/students",{method:"PATCH",headers:{"Content-Type":"application/json"},body:JSON.stringify({classId,studentId,action:"reset_pin"})});
+ if(!response.ok)throw new Error("새 PIN을 만들지 못했어요. 다시 시도해 주세요.");
+ return response.json() as Promise<{ok:true;studentCode:string;initialPin:string}>;
+}
+
+export async function resetCloudStudentQr(classId:string,studentId:string){
+ const response=await fetch("/api/teacher/students",{method:"PATCH",headers:{"Content-Type":"application/json"},body:JSON.stringify({classId,studentId,action:"reset_qr"})});
+ if(!response.ok)throw new Error("새 QR을 만들지 못했어요. 다시 시도해 주세요.");
+ return response.json() as Promise<{ok:true;studentCode:string;qrToken:string;version:number}>;
+}
+
 export async function syncClassToCloud(state:DemoState,classId:string){
  const cls=state.classes.find(item=>item.id===classId);
  const account=state.accounts.find(item=>item.classId===classId);
- if(!cloudConfigured()||!cls||!account||["sun","star","sprout"].includes(classId))return null;
+ if(!cloudConfigured()||!cls||!account||["sun","star","sprout"].includes(classId)||sessionStorage.getItem("maeum-role")!=="teacher")return null;
  const response=await fetch("/api/cloud/sync",{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({
   teacherId:account.teacherId,
   password:account.password,
@@ -81,8 +110,8 @@ export async function createCloudTeacherSession(teacherId:string,password:string
 export function mergeTeacherBootstrap(base:DemoState,payload:any,password:string):DemoState{
  const remoteClasses=(payload?.classes||[]) as any[],remoteIds=new Set(remoteClasses.map(item=>item.id)),remoteStudentIds=new Set(remoteClasses.flatMap(item=>item.students.map((student:any)=>student.id)));
  const classes=[...base.classes.filter(item=>!remoteIds.has(item.id)),...remoteClasses.map(item=>({id:item.id,name:item.name,students:item.students}))];
- const accounts=[...base.accounts.filter(item=>!remoteIds.has(item.classId)),...remoteClasses.map(item=>{const existing=base.accounts.find(account=>account.classId===item.id);return{classId:item.id,teacherId:payload.teacherCode,password,classCode:item.classCode,recoveryKey:existing?.recoveryKey||"",mustChangePassword:existing?.mustChangePassword??false,cloudManaged:true}})];
- const credentials=[...base.studentCredentials.filter(item=>!remoteStudentIds.has(item.studentId)),...remoteClasses.flatMap(item=>item.credentials.map((credential:any)=>{const existing=base.studentCredentials.find(item=>item.studentId===credential.studentId);return{studentId:credential.studentId,classId:item.id,qrToken:existing&&existing.version===credential.version?existing.qrToken:"",personalCode:existing?.personalCode||"",studentCode:credential.studentCode,pin:existing&&existing.studentCode===credential.studentCode?existing.pin:"",version:credential.version,cloudManaged:true}}))];
+ const accounts=[...base.accounts.filter(item=>!remoteIds.has(item.classId)),...remoteClasses.map(item=>{const existing=base.accounts.find(account=>account.classId===item.id);return{classId:item.id,teacherId:payload.teacherCode,password,classCode:item.classCode,recoveryKey:existing?.recoveryKey||payload.recoveryKey||"",mustChangePassword:payload.mustChangePassword??existing?.mustChangePassword??false,cloudManaged:true}})];
+ const credentials=[...base.studentCredentials.filter(item=>!remoteStudentIds.has(item.studentId)),...remoteClasses.flatMap(item=>item.credentials.map((credential:any)=>{const existing=base.studentCredentials.find(item=>item.studentId===credential.studentId),trusted=existing?.cloudManaged&&existing.version===credential.version;return{studentId:credential.studentId,classId:item.id,qrToken:trusted?existing.qrToken:"",personalCode:existing?.personalCode||"",studentCode:credential.studentCode,pin:trusted&&existing.studentCode===credential.studentCode?existing.pin:"",version:credential.version,cloudManaged:true}}))];
  return{...base,classes,accounts,studentCredentials:credentials,features:{...base.features,...Object.fromEntries(remoteClasses.map(item=>[item.id,{mood:true,friend:true,nature:true,capture:true,discovery:true,treasure:true,galleryReaction:true,teacherLetter:true,...item.features}]))},accessSettings:{...base.accessSettings,...Object.fromEntries(remoteClasses.map(item=>[item.id,base.accessSettings[item.id]||{qrEnabled:true,codeEnabled:true,sharedDevice:true,homeQrAllowed:true,teacherPin:"2468"}]))},galleryReactionSettings:{...base.galleryReactionSettings,...Object.fromEntries(remoteClasses.map(item=>[item.id,base.galleryReactionSettings[item.id]||{flowerEnabled:true,monthlySharerEnabled:true,exactCountsVisible:false,flowerThreshold:5,sharerThreshold:5}]))},classAccessibility:{...base.classAccessibility,...Object.fromEntries(remoteClasses.map(item=>[item.id,base.classAccessibility[item.id]||{largeTargets:false,audioPrompts:true,simplifiedChoices:false,pictureGuidance:true,reducedMotion:false,extendedTimeout:false,tapAlternativeToDrag:true,teacherHelp:true}]))},discoveryTopics:{...base.discoveryTopics,...Object.fromEntries(remoteClasses.map(item=>[item.id,base.discoveryTopics[item.id]||{title:"오늘의 발견",guide:"오늘 발견한 것을 너만의 방법으로 담아볼까요?",emoji:"🔎",startDate:"",endDate:""}]))}};
 }
 
